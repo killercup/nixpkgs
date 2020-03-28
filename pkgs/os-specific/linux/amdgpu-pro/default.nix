@@ -28,19 +28,23 @@ let
 
 in stdenv.mkDerivation rec {
 
-  version = "18.30";
   pname = "amdgpu-pro";
-  build = "${version}-641594";
+  version = "20.10";
+  buildnum = "1028677";
+  build = "${version}-${buildnum}";
 
   libCompatDir = "/run/lib/${libArch}";
+
+  amdgpuVersion = "5.4.7.33";
+  amdgpuSrcDir = "amdgpu-${amdgpuVersion}-${buildnum}";
 
   name = pname + "-" + version + (optionalString (!libsOnly) "-${kernelDir.version}");
 
   src = fetchurl {
     url =
-    "https://www2.ati.com/drivers/linux/ubuntu/amdgpu-pro-${build}.tar.xz";
-    sha256 = "18qhfcnbqpv0pal1iyfl7rs7wcx7fa5q6ac132pvqzxi7jnyqayh";
-    curlOpts = "--referer https://www.amd.com/en/support/kb/release-notes/rn-prorad-lin-18-30";
+    "https://drivers.amd.com/drivers/linux/amdgpu-pro-${build}-ubuntu-18.04.tar.xz";
+    sha256 = "ae2c4253bf11bea3dd01be79aeb250e4f44297ab8374e98a97716aa0809a9ed8";
+    curlOpts = "--referer https://www.amd.com/en/support/kb/release-notes/rn-rad-lin-20-10-early-preview";
   };
 
   hardeningDisable = [ "pic" "format" ];
@@ -55,16 +59,16 @@ in stdenv.mkDerivation rec {
     sourceRoot=.
   '';
 
-  modulePatches = optionals (!libsOnly) ([
-    ./patches/0001-fix-warnings-for-Werror.patch
-    ./patches/0002-drop-drm_edid_to_eld.patch
-    ./patches/0003-disable-firmware-copy.patch
-    ./patches/0004-device-link-hda.patch
-    ./patches/0005-pci.patch
-  ]);
+  # modulePatches = optionals (!libsOnly) ([
+  #   ./patches/0001-fix-warnings-for-Werror.patch
+  #   ./patches/0002-drop-drm_edid_to_eld.patch
+  #   ./patches/0003-disable-firmware-copy.patch
+  #   ./patches/0004-device-link-hda.patch
+  #   ./patches/0005-pci.patch
+  # ]);
 
   patchPhase = optionalString (!libsOnly) ''
-    pushd usr/src/amdgpu-${build}
+    pushd usr/src/${amdgpuSrcDir}
     for patch in $modulePatches
     do
       echo $patch
@@ -76,7 +80,7 @@ in stdenv.mkDerivation rec {
   xreallocarray = ./xreallocarray.c;
 
   preBuild = optionalString (!libsOnly) ''
-    pushd usr/src/amdgpu-${build}
+    pushd usr/src/${amdgpuSrcDir}
     makeFlags="$makeFlags M=$(pwd)"
     patchShebangs pre-build.sh
     ./pre-build.sh ${kernel.version}
@@ -97,7 +101,7 @@ in stdenv.mkDerivation rec {
   ];
 
   postBuild = optionalString (!libsOnly)
-    (concatMapStrings (m: "xz usr/src/amdgpu-${build}/${m}\n") modules);
+    (concatMapStrings (m: "xz usr/src/${amdgpuSrcDir}/${m}\n") modules);
 
   NIX_CFLAGS_COMPILE = "-Werror";
 
@@ -114,11 +118,12 @@ in stdenv.mkDerivation rec {
 
     cp -r etc $out/etc
     cp -r lib $out/lib
+    cp -r opt $out/opt
 
     pushd usr
     cp -r lib/${libArch}/* $out/lib
   '' + optionalString (!libsOnly) ''
-    cp -r src/amdgpu-${build}/firmware $out/lib/firmware
+    cp -r src/${amdgpuSrcDir}/firmware $out/lib/firmware
   '' + ''
     cp -r share $out/share
     popd
@@ -128,7 +133,7 @@ in stdenv.mkDerivation rec {
     cp -r bin $out/bin
     for f in `find ../amdgpu/bin/ -type f`; do cp $f $out/bin; done
   '' + ''
-    cp -r include $out/include
+    # cp -r include $out/include
     cp -r ../amdgpu/lib/${libArch}/* $out/lib
     cp -r lib/${libArch}/* $out/lib
   '' + optionalString (!libsOnly) ''
@@ -140,7 +145,7 @@ in stdenv.mkDerivation rec {
 
   '' + optionalString (!libsOnly)
     (concatMapStrings (m:
-      "install -Dm444 usr/src/amdgpu-${build}/${m}.xz $out/lib/modules/${kernel.modDirVersion}/kernel/drivers/gpu/drm/${m}.xz\n") modules)
+      "install -Dm444 usr/src/${amdgpuSrcDir}/${m}.xz $out/lib/modules/${kernel.modDirVersion}/kernel/drivers/gpu/drm/${m}.xz\n") modules)
   + ''
     mv $out/etc/vulkan $out/share
     interpreter="$(cat $NIX_CC/nix-support/dynamic-linker)"
@@ -159,13 +164,13 @@ in stdenv.mkDerivation rec {
     for lib in `find "$out/lib/" -name '*.so*' -type f`; do
       patchelf --set-rpath "$libPath" "$lib"
     done
-    for lib in libEGL.so.1 libGL.so.1.2 ${optionalString (!libsOnly) "xorg/modules/extensions/libglx.so"} dri/amdgpu_dri.so libamdocl${bitness}.so; do
+    for lib in libEGL.so.1 libGL.so.1.2 ${optionalString (!libsOnly) "xorg/modules/extensions/libglx.so"} dri/amdgpu_dri.so libamdocl12cl32.so; do
       perl -pi -e 's:${libReplaceDir}:${libCompatDir}:g' "$out/lib/$lib"
     done
-    for lib in dri/amdgpu_dri.so libdrm_amdgpu.so.1.0.0 libgbm.so.1.0.0 libkms.so.1.0.0 libamdocl${bitness}.so; do
+    for lib in dri/amdgpu_dri.so libdrm_amdgpu.so.1.0.0 libgbm.so.1.0.0 libkms.so.1.0.0 libamdocl12cl32.so; do
       perl -pi -e 's:/opt/amdgpu-pro/:/run/amdgpu-pro/:g' "$out/lib/$lib"
     done
-    substituteInPlace "$out/share/vulkan/icd.d/amd_icd${bitness}.json" --replace "/opt/amdgpu-pro/lib/${libArch}" "$out/lib"
+    substituteInPlace "$out/opt/amdgpu-pro/etc/vulkan/icd.d/amd_icd${bitness}.json" --replace "/opt/amdgpu-pro/lib/${libArch}" "$out/lib"
   '' + optionalString (!libsOnly) ''
     for lib in libglamoregl.so; do
       patchelf --add-needed $out/lib/libhack-xreallocarray.so $out/lib/xorg/modules/$lib
@@ -182,7 +187,7 @@ in stdenv.mkDerivation rec {
 
   meta = with stdenv.lib; {
     description = "AMDGPU-PRO drivers";
-    homepage =  http://support.amd.com/en-us/kb-articles/Pages/AMDGPU-PRO-Beta-Driver-for-Vulkan-Release-Notes.aspx ;
+    homepage = "https://www.amd.com/en/support/kb/release-notes/rn-rad-lin-20-10-early-preview";
     license = licenses.unfree;
     platforms = platforms.linux;
     maintainers = with maintainers; [ corngood ];

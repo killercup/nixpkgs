@@ -15,7 +15,7 @@ let
 
   opengl = config.hardware.opengl;
 
-  kernel = pkgs.linux_4_18.override {
+  kernel = pkgs.linux_5_4.override {
     extraConfig = ''
       KALLSYMS_ALL y
     '';
@@ -27,7 +27,7 @@ in
 
   config = mkIf enabled {
 
-    nixpkgs.config.xorg.abiCompat = "1.19";
+    nixpkgs.config.xorg.abiCompat = "1.20";
 
     services.xserver.drivers = singleton
       { name = "amdgpu"; modules = [ package ]; display = true; };
